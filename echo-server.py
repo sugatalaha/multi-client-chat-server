@@ -12,14 +12,22 @@ def server():
         conn, ret_addr=sock.accept()
         if conn:
             print(f"Connected to {ret_addr}")
-            while True:
-                received_bytes=conn.recv(MAXBYTES)
-                received_msg=received_bytes.decode().strip()
-                if not received_msg:
-                    print("Connection with the client closing...")
-                    break
-                print(f"Received {received_msg}")
-                conn.send(received_msg.encode())
+            received_name_msg=conn.recv(MAXBYTES)
+            name_split_array=received_name_msg.decode().split("=")
+            name_key=name_split_array[0]
+            name_val=name_split_array[1]
+            if name_key!="name":
+                conn.send("Need name for logging user...".encode())
+            else:
+                conn.send(f"Hi, {name_val}".encode())
+                while True:
+                    received_bytes=conn.recv(MAXBYTES)
+                    received_msg=received_bytes.decode().strip()
+                    if not received_msg:
+                        print("Connection with the client closing...")
+                        break
+                    print(f"Received {received_msg}")
+                    conn.send(received_msg.encode())
 
 if __name__=="__main__":
     server()
