@@ -6,6 +6,7 @@ PORT=7007
 MAXBYTES=65535
 
 connections=[]
+lock_connections=threading.Lock()
 
 def handle_client(name, conn):
     while True:
@@ -17,9 +18,10 @@ def handle_client(name, conn):
                     connection.send(f"system:{name} has left the chatroom!".encode())
             connections.remove(conn)
             break
-        for connection in connections:
-            if connection!=conn:
-                connection.send(f"{name}:{received_msg}".encode())
+        with lock_connections:
+            for connection in connections:
+                if connection!=conn:
+                    connection.send(f"{name}:{received_msg}".encode())
 
 def server():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -38,9 +40,10 @@ def server():
                     conn.send("system:Need name for logging user...".encode())
                 else:
                     conn.send(f"system:Hi, {name_val}".encode())
-                    for connection in connections:
-                        connection.send(f"system:{name_val} has joined the chatroom!".encode())
-                    connections.append(conn)
+                    with lock_connections:
+                        for connection in connections:
+                            connection.send(f"system:{name_val} has joined the chatroom!".encode())
+                        connections.append(conn)
                     threading.Thread(None, handle_client,None, [name_val, conn]).start()
 
 if __name__=="__main__":
