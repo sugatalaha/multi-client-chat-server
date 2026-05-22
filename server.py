@@ -15,9 +15,9 @@ user_linked_room={}
 lock_user_linked_room=threading.Lock()
 
 def protocol_parser(message):
-    data=message.strip().split(":")
-    command=data[0]
-    argument=data[1]
+    data=message.strip().split(":", 2)
+    command=data[0].strip()
+    argument=data[1].strip()
     if len(data)>2:
         payload=data[2]
     else:
@@ -26,7 +26,7 @@ def protocol_parser(message):
 
 def broadcast_message(conn, message):
     message=message.encode()
-    for connection in connections:
+    for connection in connections.values():
         if connection != conn:
             connection.send(message)
 
@@ -41,10 +41,11 @@ def handle_client(name, conn):
                         connection.send(f"system:{name} has disconnected!".encode())
                 del connections[name]
                 with lock_user_linked_room:
-                    for chat_room_name in user_linked_room[name]:
+                    for chat_room_name in user_linked_room.get(name, []):
                         with lock_chat_rooms:
                             chat_rooms[chat_room_name].remove(conn) 
-                    del user_linked_room[name]
+                    if name in user_linked_room:
+                        del user_linked_room[name]
             break
         else:
             command, argument, payload=protocol_parser(received_msg)
@@ -53,10 +54,10 @@ def handle_client(name, conn):
                     chat_rooms[argument]=[]
                     chat_rooms[argument].append(conn)
                     with lock_user_linked_room:
-                        user_linked_room[name].append(argument)
-                broadcast_string="system: available chat-rooms\n"
-                for name in chat_rooms.keys():
-                    broadcast_string+=f"{name}\n"
+                        user_linked_room.get(name, []).append(argument)
+                broadcast_string="system: available chat-rooms"
+                for chat_room_name in chat_rooms.keys():
+                    broadcast_string+=f"\n{chat_room_name}"
                 broadcast_message(conn, broadcast_string)
 
             elif command=="/join":
@@ -64,18 +65,21 @@ def handle_client(name, conn):
                     conn.send(f"system: ERR Invalid chat room {argument}".encode())
                 else:
                     for connection in chat_rooms[argument]:
-                        connection.send(f"system: {name} has joined chat room!".encode())
+                        connection.send(f"system: {name} has joined chat room {argument}!".encode())
                     with lock_chat_rooms:
                         chat_rooms[argument].append(conn)
                         with lock_user_linked_room:
+                            if name not in user_linked_room:
+                                user_linked_room[name]=[]
                             user_linked_room[name].append(argument)
+                            print(name, user_linked_room.get(name, []))
             elif command=="/msg":
                 if argument[0]=="#":
                     if argument in chat_rooms:
-                        if name in user_linked_room and argument in user_linked_room[name]:
+                        if argument in user_linked_room.get(name, []):
                             for connection in chat_rooms[argument]:
                                 if connection!=conn:
-                                    connection.send(f"{name}: {payload}".encode())
+                                    connection.send(f"{name}:[in {argument}] {payload}".encode())
                         else:
                             conn.send(f"system: ERR You are not part of the room {argument}!".encode())
                     else:
@@ -83,7 +87,7 @@ def handle_client(name, conn):
                 elif argument[0]=="@":
                     receiver_name=argument[1:]
                     if receiver_name in connections:
-                        connections[receiver_name].send(f"{name}: {payload}".encode())
+                        connections[receiver_name].send(f"{name}: [private] {payload}".encode())
                     else:
                         conn.send(f"system: ERR {receiver_name} not in chat!")
                 else:
@@ -91,7 +95,7 @@ def handle_client(name, conn):
             elif command=="/leave":
                 if argument[0]=="#":
                     if argument in chat_rooms:
-                        if name in user_linked_room and argument in user_linked_room[name]:
+                        if name in user_linked_room and argument in user_linked_room.get(name, []):
                             for connection in chat_rooms[argument]:
                                 if connection!=conn:
                                     connection.send(f"system: {name} left the room!".encode())
