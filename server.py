@@ -14,6 +14,9 @@ lock_chat_rooms=threading.Lock()
 user_linked_room={}
 lock_user_linked_room=threading.Lock()
 
+buffer={}
+lock_buffer=threading.Lock()
+
 def protocol_parser(message):
     data=message.strip().split(":", 2)
     command=data[0].strip()
@@ -28,17 +31,32 @@ def broadcast_message(conn, message):
     message=message.encode()
     for connection in connections.values():
         if connection != conn:
-            connection.send(message)
+            connection.sendall(message)
+
+def collect_message(conn):
+    while True:
+        received_bytes=conn.recv(MAXBYTES)
+        received_msg=received_bytes.decode()
+        if not received_msg:
+            return None
+        with lock_buffer:
+            if conn not in buffer:
+                buffer[conn]=""
+            buffer[conn]+=received_msg
+            if "\n" in buffer[conn]:
+                total_message, remaining=buffer[conn].split("\n", 1)
+                buffer[conn]=remaining
+                break
+    return total_message
 
 def handle_client(name, conn):
     while True:
-        received_bytes=conn.recv(MAXBYTES)
-        received_msg=received_bytes.decode().strip()
-        if not received_msg:
+        received_msg=collect_message(conn)
+        if received_msg==None:
             with lock_connections:
                 for _, connection in connections.items():
                     if connection !=conn:
-                        connection.send(f"system:{name} has disconnected!".encode())
+                        connection.sendall(f"system:{name} has disconnected!\n".encode())
                 del connections[name]
                 with lock_user_linked_room:
                     for chat_room_name in user_linked_room.get(name, []):
@@ -55,62 +73,61 @@ def handle_client(name, conn):
                     chat_rooms[argument].append(conn)
                     with lock_user_linked_room:
                         user_linked_room.get(name, []).append(argument)
-                broadcast_string="system: available chat-rooms"
+                broadcast_string="system: available chat-rooms:-"
                 for chat_room_name in chat_rooms.keys():
-                    broadcast_string+=f"\n{chat_room_name}"
-                broadcast_message(conn, broadcast_string)
+                    broadcast_string+=f"{chat_room_name}\t"
+                broadcast_message(conn, f"{broadcast_string}\n")
 
             elif command=="/join":
                 if argument not in chat_rooms:
-                    conn.send(f"system: ERR Invalid chat room {argument}".encode())
+                    conn.sendall(f"system: ERR Invalid chat room {argument}\n".encode())
                 else:
                     for connection in chat_rooms[argument]:
-                        connection.send(f"system: {name} has joined chat room {argument}!".encode())
+                        connection.sendall(f"system: {name} has joined chat room {argument}!\n".encode())
                     with lock_chat_rooms:
                         chat_rooms[argument].append(conn)
                         with lock_user_linked_room:
                             if name not in user_linked_room:
                                 user_linked_room[name]=[]
                             user_linked_room[name].append(argument)
-                            print(name, user_linked_room.get(name, []))
             elif command=="/msg":
                 if argument[0]=="#":
                     if argument in chat_rooms:
                         if argument in user_linked_room.get(name, []):
                             for connection in chat_rooms[argument]:
                                 if connection!=conn:
-                                    connection.send(f"{name}:[in {argument}] {payload}".encode())
+                                    connection.sendall(f"{name}:[in {argument}] {payload}\n".encode())
                         else:
-                            conn.send(f"system: ERR You are not part of the room {argument}!".encode())
+                            conn.sendall(f"system: ERR You are not part of the room {argument}!\n".encode())
                     else:
-                        conn.send(f"system: ERR Invalid chat room {argument}".encode())
+                        conn.sendall(f"system: ERR Invalid chat room {argument}\n".encode())
                 elif argument[0]=="@":
                     receiver_name=argument[1:]
                     if receiver_name in connections:
-                        connections[receiver_name].send(f"{name}: [private] {payload}".encode())
+                        connections[receiver_name].sendall(f"{name}: [private] {payload}\n".encode())
                     else:
-                        conn.send(f"system: ERR {receiver_name} not in chat!")
+                        conn.sendall(f"system: ERR {receiver_name} not in chat!\n")
                 else:
-                    conn.send(f"system: ERR Use # for chat-room or @ for private messaging!")
+                    conn.sendall(f"system: ERR Use # for chat-room or @ for private messaging!\n")
             elif command=="/leave":
                 if argument[0]=="#":
                     if argument in chat_rooms:
                         if name in user_linked_room and argument in user_linked_room.get(name, []):
                             for connection in chat_rooms[argument]:
                                 if connection!=conn:
-                                    connection.send(f"system: {name} left the room!".encode())
+                                    connection.sendall(f"system: {name} left the room!\n".encode())
                             with lock_chat_rooms:
                                 chat_rooms[argument].remove(conn)
                                 with lock_user_linked_room:
                                     user_linked_room[name].remove(argument)
                         else:
-                            conn.send(f"system: ERR You are not part of the room {argument}!".encode())
+                            conn.sendall(f"system: ERR You are not part of the room {argument}!\n".encode())
                     else:
-                        conn.send(f"system: ERR Invalid chat room {argument}!".encode())
+                        conn.sendall(f"system: ERR Invalid chat room {argument}!\n".encode())
                 else:
-                    conn.send(f"system: ERR Use # followed by the chat room name".encode())
+                    conn.sendall(f"system: ERR Use # followed by the chat room name\n".encode())
             else:
-                conn.send(f"system: ERR Invalid command!")
+                conn.sendall(f"system: ERR Invalid command!\n")
 
                         
 def server():
@@ -127,12 +144,12 @@ def server():
                 name_key=name_split_array[0]
                 name_val=name_split_array[1]
                 if name_key!="name":
-                    conn.send("system: ERR Need name for logging user...".encode())
+                    conn.sendall("system: ERR Need name for logging user...\n".encode())
                 else:
-                    conn.send(f"system:Hi, {name_val}".encode())
+                    conn.sendall(f"system:Hi, {name_val}\n".encode())
                     with lock_connections:
                         for connection in connections.values():
-                            connection.send(f"system: {name_val} has joined the chat!".encode())
+                            connection.sendall(f"system: {name_val} has joined the chat!\n".encode())
                         connections[name_val]=conn
                     threading.Thread(None, handle_client,None, [name_val, conn]).start()
 
