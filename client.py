@@ -1,16 +1,13 @@
 import socket
 import sys
 import select
-
-IP_CONNECT="127.0.0.1"
-PORT_CONNECT=7007
-BUFFER_SIZE=65535
+from constants import *
 
 buffer=""
 
 def client():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.connect((IP_CONNECT, PORT_CONNECT))
+        sock.connect((HOST, PORT))
         rlist=[sys.stdin, sock]
         print("Connected to server...")
         name=str(input("Name: "))
@@ -20,7 +17,7 @@ def client():
             ready_fds, _, _=select.select(rlist, [], [])
             for source in ready_fds:
                 if source==sock:
-                    received_bytes=sock.recv(BUFFER_SIZE)
+                    received_bytes=sock.recv(MAXBYTES)
                     received_message=received_bytes.decode()
                     if received_message==None:
                         break
