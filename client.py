@@ -20,6 +20,7 @@ def client():
                     received_bytes=sock.recv(MAXBYTES)
                     received_message=received_bytes.decode()
                     if received_message==None:
+                        break_connection=True
                         break
                     global buffer
                     buffer+=received_message

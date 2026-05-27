@@ -1,15 +1,41 @@
 from shared_dictionaries import *
-from utils import broadcast_message
+from constants import *
 
 def protocol_parser(message):
     data=message.strip().split(":", 2)
     command=data[0].strip()
-    argument=data[1].strip()
-    if len(data)>2:
-        payload=data[2]
+    if len(data)>1:
+        argument=data[1].strip()
+        if len(data)>2:
+            payload=data[2]
+        else:
+            payload=""
     else:
+        argument=""
         payload=""
     return command, argument, payload
+
+def broadcast_message(conn, message):
+    message=message.encode()
+    for connection in connections.values():
+        if connection != conn:
+            connection.sendall(message)
+
+def collect_message(conn):
+    while True:
+        received_bytes=conn.recv(MAXBYTES)
+        received_msg=received_bytes.decode()
+        if not received_msg:
+            return None
+        with lock_buffer:
+            if conn not in buffer:
+                buffer[conn]=""
+            buffer[conn]+=received_msg
+            if "\n" in buffer[conn]:
+                total_message, remaining=buffer[conn].split("\n", 1)
+                buffer[conn]=remaining
+                break
+    return total_message
 
 def handle_create(conn, command, argument, name, payload=None):
     if command=="/create":
@@ -57,9 +83,9 @@ def handle_msg(conn, command, argument, name, payload):
             if receiver_name in connections:
                 connections[receiver_name].sendall(f"{name}: [private] {payload}\n".encode())
             else:
-                conn.sendall(f"system: ERR {receiver_name} not in chat!\n")
+                conn.sendall(f"system: ERR {receiver_name} not in chat!\n".encode())
         else:
-            conn.sendall(f"system: ERR Use # for chat-room or @ for private messaging!\n")
+            conn.sendall(f"system: ERR Use # for chat-room or @ for private messaging!\n".encode())
         
 def handle_leave(conn, command, argument, name, payload):
     if command=="/leave":
@@ -79,3 +105,26 @@ def handle_leave(conn, command, argument, name, payload):
                 conn.sendall(f"system: ERR Invalid chat room {argument}!\n".encode())
         else:
             conn.sendall(f"system: ERR Use # followed by the chat room name\n".encode())
+
+def handle_who(conn, command, argument=None, name=None, payload=None):
+    if command=="/who":
+        active_names="Usernames for active connections: "
+        for active_name in connections.keys():
+            active_names+=f"{active_name}\t"
+        conn.sendall(f"{active_names}\n".encode())
+
+def handle_list(conn, command, argument=None, name=None, payload=None):
+    if command=="/list":
+        rooms="Available rooms:\t"
+        for room_name in chat_rooms.keys():
+            rooms+=f"{room_name}\t"
+        conn.sendall(f"{rooms}\n".encode())
+        
+COMMAND={
+    "/create":handle_create,
+    "/join":handle_join,
+    "/msg":handle_msg,
+    "/leave":handle_leave,
+    "/who":handle_who,
+    "/list":handle_list
+}

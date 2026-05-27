@@ -1,7 +1,8 @@
 import socket
 import threading
 from shared_dictionaries import *
-from utils import *
+from protocol import COMMAND, collect_message, protocol_parser
+from constants import *
 
 def handle_client(name, conn):
     while True:
